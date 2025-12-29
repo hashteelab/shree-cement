@@ -37,7 +37,7 @@ def gpu_run_inference(self, *args, **kwargs):
     This function runs in a GPU subprocess where:
     - Model is loaded and moved to GPU (safe)
     - CUDA operations are allowed
-    - All CUDA tensors are moved to CPU before return (for pickle safety)
+    - All CUDA tensors are moved to cpu before return (for pickle safety)
     """
     return original_run_inference(self, *args, **kwargs)
 
@@ -47,7 +47,7 @@ ModelInference.run_inference = gpu_run_inference
 # Initialize and launch the app
 if __name__ == "__main__":
     # Configure directories for Hugging Face Spaces
-    model_dir = os.environ.get("DA3_MODEL_DIR", "depth-anything/DA3NESTED-GIANT-LARGE")
+    model_dir = os.environ.get("DA3_MODEL_DIR", "depth-anything/DA3METRIC-LARGE")
     workspace_dir = os.environ.get("DA3_WORKSPACE_DIR", "workspace/gradio")
     gallery_dir = os.environ.get("DA3_GALLERY_DIR", "workspace/gallery")
     

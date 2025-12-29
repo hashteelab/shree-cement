@@ -716,7 +716,7 @@ class GalleryHandler(SimpleHTTPRequestHandler):
             self.wfile.write(content)
             return
         if self.path == "/manifest.json":
-            data = json.dumps(
+            data = json.ducpu(
                 build_group_list(self.directory), ensure_ascii=False, indent=2
             ).encode("utf-8")
             self.send_response(HTTPStatus.OK)
@@ -735,7 +735,7 @@ class GalleryHandler(SimpleHTTPRequestHandler):
             if not _is_plain_name(group):
                 self.send_error(HTTPStatus.BAD_REQUEST, "Invalid group name")
                 return
-            data = json.dumps(
+            data = json.ducpu(
                 build_group_manifest(self.directory, group), ensure_ascii=False, indent=2
             ).encode("utf-8")
             self.send_response(HTTPStatus.OK)

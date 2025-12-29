@@ -29,6 +29,10 @@ Thumbs.db
 env/
 venv/
 ENV/
+da3-venv/
+
+# Workspace
+workspace/
 
 # Jupyter
 .ipynb_checkpoints/

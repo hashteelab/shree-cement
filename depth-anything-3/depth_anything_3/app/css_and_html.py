@@ -221,7 +221,7 @@ GRADIO_CSS = """
     100% { background-position: 0% 50%; }
 }
 
-@keyframes metricPulse {
+@keyframes metricpulse {
     0%, 100% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
 }
@@ -248,7 +248,7 @@ GRADIO_CSS = """
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent !important;
-    animation: metricPulse 2s ease-in-out infinite;
+    animation: metricpulse 2s ease-in-out infinite;
     font-weight: 700;
     text-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
 }

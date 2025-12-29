@@ -27,7 +27,7 @@ import numpy as np
 import torch
 
 from depth_anything_3.api import DepthAnything3
-from depth_anything_3.utils.export.glb import export_to_glb
+from depth_anything_3.utils.export.depth_vis import export_to_depth_vis
 from depth_anything_3.utils.export.gs import export_to_gs_video
 
 
@@ -54,7 +54,7 @@ class ModelInference:
         """
         Initialize the DepthAnything3 model using global cache.
         
-        Optimization: Load model to CPU first, then move to GPU when needed.
+        Optimization: Load model to cpu first, then move to GPU when needed.
         This is faster than reloading from disk each time.
         
         This uses a global variable which is safe because @spaces.GPU
@@ -70,17 +70,17 @@ class ModelInference:
         
         if _MODEL_CACHE is None:
             # First time loading in this subprocess
-            # Load to CPU first (faster than loading directly to GPU)
+            # Load to cpu first (faster than loading directly to GPU)
             model_dir = os.environ.get(
-                "DA3_MODEL_DIR", "depth-anything/DA3NESTED-GIANT-LARGE"
+                "DA3_MODEL_DIR", "depth-anything/DA3METRIC-LARGE"
             )
-            print(f"🔄 Loading model from {model_dir} to CPU...")
+            print(f"🔄 Loading model from {model_dir} to cpu...")
             print("   (Model files are cached on disk)")
             _MODEL_CACHE = DepthAnything3.from_pretrained(model_dir)
-            # Load to CPU first (faster, and allows reuse)
+            # Load to cpu first (faster, and allows reuse)
             _MODEL_CACHE = _MODEL_CACHE.to("cpu")
             _MODEL_CACHE.eval()
-            print("✅ Model loaded to CPU memory (cached in subprocess)")
+            print("✅ Model loaded to cpu memory (cached in subprocess)")
         
         # Move to target device for inference
         if device != "cpu" and next(_MODEL_CACHE.parameters()).device.type != device:
@@ -88,7 +88,7 @@ class ModelInference:
             _MODEL_CACHE = _MODEL_CACHE.to(device)
             print(f"✅ Model ready on {device}")
         elif device == "cpu":
-            # Already on CPU or requested CPU
+            # Already on cpu or requested cpu
             pass
         
         return _MODEL_CACHE
@@ -194,16 +194,12 @@ class ModelInference:
             prediction = model.inference(
                 image_paths, export_dir=None, process_res_method=actual_method, infer_gs=infer_gs
             )
-        # num_max_points: int = 1_000_000,
-        export_to_glb(
-            prediction,
-            filter_black_bg=filter_black_bg,
-            filter_white_bg=filter_white_bg,
-            export_dir=target_dir,
-            show_cameras=show_camera,
-            conf_thresh_percentile=save_percentage,
-            num_max_points=int(num_max_points),
-        )
+
+        # Note: GLB export removed - metric models don't predict pose/intrinsics
+        # GLB export is only useful when using COLMAP pose data as input
+
+        # Export depth visualization for metric depth measurement
+        export_to_depth_vis(prediction, target_dir)
 
         # export to gs video if needed
         if infer_gs:
@@ -225,7 +221,7 @@ class ModelInference:
         # Process results
         processed_data = self._process_results(target_dir, prediction, image_paths)
 
-        # CRITICAL: Move all CUDA tensors to CPU before returning
+        # CRITICAL: Move all CUDA tensors to cpu before returning
         # This prevents CUDA initialization in main process during unpickling
         prediction = self._move_prediction_to_cpu(prediction)
 
@@ -319,7 +315,7 @@ class ModelInference:
 
     def _move_prediction_to_cpu(self, prediction: Any) -> Any:
         """
-        Move all CUDA tensors in prediction to CPU for safe pickling.
+        Move all CUDA tensors in prediction to cpu for safe pickling.
         
         This is REQUIRED for HF Spaces with @spaces.GPU decorator to avoid
         CUDA initialization in the main process during unpickling.
@@ -328,33 +324,33 @@ class ModelInference:
             prediction: Prediction object that may contain CUDA tensors
             
         Returns:
-            Prediction object with all tensors moved to CPU
+            Prediction object with all tensors moved to cpu
         """
-        # Move gaussians tensors to CPU
+        # Move gaussians tensors to cpu
         if hasattr(prediction, 'gaussians') and prediction.gaussians is not None:
             gaussians = prediction.gaussians
             
-            # Move each tensor attribute to CPU
+            # Move each tensor attribute to cpu
             tensor_attrs = ['means', 'scales', 'rotations', 'harmonics', 'opacities']
             for attr in tensor_attrs:
                 if hasattr(gaussians, attr):
                     tensor = getattr(gaussians, attr)
                     if isinstance(tensor, torch.Tensor) and tensor.is_cuda:
                         setattr(gaussians, attr, tensor.cpu())
-                        print(f"  ✓ Moved gaussians.{attr} to CPU")
+                        print(f"  ✓ Moved gaussians.{attr} to cpu")
         
-        # Move any tensors in aux dict to CPU
+        # Move any tensors in aux dict to cpu
         if hasattr(prediction, 'aux') and prediction.aux is not None:
             for key, value in list(prediction.aux.items()):
                 if isinstance(value, torch.Tensor) and value.is_cuda:
                     prediction.aux[key] = value.cpu()
-                    print(f"  ✓ Moved aux['{key}'] to CPU")
+                    print(f"  ✓ Moved aux['{key}'] to cpu")
                 elif isinstance(value, dict):
                     # Recursively handle nested dicts
                     for k, v in list(value.items()):
                         if isinstance(v, torch.Tensor) and v.is_cuda:
                             value[k] = v.cpu()
-                            print(f"  ✓ Moved aux['{key}']['{k}'] to CPU")
+                            print(f"  ✓ Moved aux['{key}']['{k}'] to cpu")
         
         return prediction
 

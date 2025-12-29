@@ -338,14 +338,26 @@ class VisualizationHandler:
             # Get depth information from processed_data
             depth_text = ""
             try:
+                # Calculate focal length for metric depth conversion
+                if current_view["intrinsics"] is not None:
+                    K = current_view["intrinsics"]
+                    fx, fy = K[0, 0], K[1, 1]
+                    focal = (fx + fy) / 2
+                else:
+                    # Estimate focal from image width
+                    depth_height, depth_width = current_view["depth"].shape
+                    focal = depth_width * 1.2
+
                 for i, p in enumerate(measure_points):
                     if (
                         current_view["depth"] is not None
                         and 0 <= p[1] < current_view["depth"].shape[0]
                         and 0 <= p[0] < current_view["depth"].shape[1]
                     ):
-                        d = current_view["depth"][p[1], p[0]]
-                        depth_text += f"- **P{i + 1} depth: {d:.2f}m**\n"
+                        raw_d = current_view["depth"][p[1], p[0]]
+                        # Convert DA3METRIC output to metric depth: metric_depth = focal * net_output / 300.0
+                        d_metric = focal * raw_d / 300.0
+                        depth_text += f"- **P{i + 1} depth: {d_metric:.2f}m**\n"
                     else:
                         depth_text += f"- **P{i + 1}: Click position ({p[0]}, {p[1]}) - No depth information**\n"  # noqa: E501
             except Exception as e:
@@ -374,45 +386,56 @@ class VisualizationHandler:
                         and 0 <= point2[0] < current_view["depth"].shape[1]
                     ):
                         try:
-                            # Get depth values at the two points
-                            d1 = current_view["depth"][point1[1], point1[0]]
-                            d2 = current_view["depth"][point2[1], point2[0]]
+                            # Get raw depth values from DA3METRIC model output
+                            raw_d1 = current_view["depth"][point1[1], point1[0]]
+                            raw_d2 = current_view["depth"][point2[1], point2[0]]
 
-                            # Convert 2D pixel coordinates to 3D world coordinates
+                            # For DA3METRIC-LARGE: metric_depth = focal * net_output / 300.0
+                            # We need focal length to convert to metric depth
                             if current_view["intrinsics"] is not None:
                                 # Get camera intrinsics
                                 K = current_view["intrinsics"]  # 3x3 intrinsic matrix
-                                fx, fy = K[0, 0], K[1, 1]  # focal lengths
+                                fx, fy = K[0, 0], K[1, 1]  # focal lengths in pixels
                                 cx, cy = K[0, 2], K[1, 2]  # principal point
+                                focal = (fx + fy) / 2  # Average focal length
+                            else:
+                                # Estimate focal from image width (common approximation: focal ≈ width * 1.2)
+                                # The depth map might be at a different resolution than original image
+                                depth_height, depth_width = current_view["depth"].shape
+                                focal = depth_width * 1.2  # Estimated focal length
+                                # Use center of image as principal point
+                                cx, cy = depth_width / 2, depth_height / 2
 
-                                # Convert pixel coordinates to normalized camera coordinates
-                                # Point 1: (u1, v1) -> (x1, y1, z1)
-                                u1, v1 = point1[0], point1[1]
-                                x1 = (u1 - cx) * d1 / fx
-                                y1 = (v1 - cy) * d1 / fy
-                                z1 = d1
+                            # Convert raw DA3METRIC output to metric depth (in meters)
+                            # Formula: metric_depth = focal * net_output / 300.0
+                            d1_metric = focal * raw_d1 / 300.0
+                            d2_metric = focal * raw_d2 / 300.0
 
-                                # Point 2: (u2, v2) -> (x2, y2, z2)
-                                u2, v2 = point2[0], point2[1]
-                                x2 = (u2 - cx) * d2 / fx
-                                y2 = (v2 - cy) * d2 / fy
-                                z2 = d2
+                            # Use estimated fx/fy for coordinate conversion
+                            fx = fy = focal
 
-                                # Calculate 3D Euclidean distance
-                                p1_3d = np.array([x1, y1, z1])
-                                p2_3d = np.array([x2, y2, z2])
-                                distance_3d = np.linalg.norm(p1_3d - p2_3d)
+                            # Convert 2D pixel coordinates to 3D world coordinates
+                            # Point 1: (u1, v1) -> (x1, y1, z1)
+                            u1, v1 = point1[0], point1[1]
+                            x1 = (u1 - cx) * d1_metric / fx
+                            y1 = (v1 - cy) * d1_metric / fy
+                            z1 = d1_metric
 
+                            # Point 2: (u2, v2) -> (x2, y2, z2)
+                            u2, v2 = point2[0], point2[1]
+                            x2 = (u2 - cx) * d2_metric / fx
+                            y2 = (v2 - cy) * d2_metric / fy
+                            z2 = d2_metric
+
+                            # Calculate 3D Euclidean distance
+                            p1_3d = np.array([x1, y1, z1])
+                            p2_3d = np.array([x2, y2, z2])
+                            distance_3d = np.linalg.norm(p1_3d - p2_3d)
+
+                            if current_view["intrinsics"] is not None:
                                 distance_text = f"- **Distance: {distance_3d:.2f}m**"
                             else:
-                                # Fallback to simplified calculation if no intrinsics
-                                pixel_distance = np.sqrt(
-                                    (point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2
-                                )
-                                avg_depth = (d1 + d2) / 2
-                                scale_factor = avg_depth / 1000  # Rough scaling factor
-                                estimated_3d_distance = pixel_distance * scale_factor
-                                distance_text = f"- **Distance: {estimated_3d_distance:.2f}m (estimated, no intrinsics)**"  # noqa: E501
+                                distance_text = f"- **Distance: {distance_3d:.2f}m (estimated focal)**"  # noqa: E501
 
                         except Exception as e:
                             print(f"Distance computation error: {e}")

@@ -16,7 +16,7 @@
 PCA utilities for feature visualization and dimensionality reduction (video-friendly).
 - Support frame-by-frame: transform_frame / transform_video
 - Support one-time global PCA fitting and reuse (mean, V3) for stable colors
-- Support Procrustes alignment (solving principal component order/sign/rotation jumps)
+- Support Procrustes alignment (solving principal component order/sign/rotation jucpu)
 - Support global fixed or temporal EMA for percentiles (time dimension only, no spatial)
 """
 
