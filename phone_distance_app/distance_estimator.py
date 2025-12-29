@@ -2,9 +2,16 @@
 Distance estimation module using DepthAnything3.
 """
 
+import sys
+import os
 from typing import Optional, Tuple
 import numpy as np
 import torch
+
+# Add depth-anything-3 to Python path
+_da3_path = os.path.join(os.path.dirname(__file__), "..", "depth-anything-3")
+if os.path.exists(_da3_path) and _da3_path not in sys.path:
+    sys.path.insert(0, _da3_path)
 
 
 class DistanceEstimator:

@@ -37,11 +37,32 @@ class AppConfig:
     capture_folder: str = "images"
     capture_interval: float = 2.0  # seconds between captures
 
+    # Depth Anything 3 settings
+    enable_depth: bool = True
+    da3_model_path: str = "depth-anything/DA3METRIC-LARGE"
+    da3_device: str = ""  # Empty = auto-detect
+    da3_process_res: int = 504
+    depth_update_interval: float = 0.5  # seconds between depth updates
+    depth_sample_radius: int = 2  # radius around centroid for depth sampling
+    distance_smoothing_alpha: float = 0.3  # exponential smoothing (0-1)
+
     @property
     def yolo_device_actual(self) -> str:
         """Get actual YOLO device (auto-detect if empty)."""
         if self.yolo_device:
             return self.yolo_device
+        try:
+            import torch
+
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            return "cpu"
+
+    @property
+    def da3_device_actual(self) -> str:
+        """Get actual DA3 device (auto-detect if empty)."""
+        if self.da3_device:
+            return self.da3_device
         try:
             import torch
 
