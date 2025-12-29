@@ -32,6 +32,11 @@ class AppConfig:
     text_color: Tuple[int, int, int] = (0, 255, 0)  # Green
     text_bg_color: Tuple[int, int, int] = (0, 0, 0)  # Black
 
+    # Image capture settings
+    enable_capture: bool = True
+    capture_folder: str = "images"
+    capture_interval: float = 2.0  # seconds between captures
+
     @property
     def yolo_device_actual(self) -> str:
         """Get actual YOLO device (auto-detect if empty)."""

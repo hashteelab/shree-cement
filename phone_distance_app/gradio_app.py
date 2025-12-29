@@ -7,6 +7,8 @@ import numpy as np
 import cv2
 from typing import Optional
 import time
+import os
+from datetime import datetime
 
 from .config import AppConfig
 from .detector import PhoneDetector
@@ -32,6 +34,15 @@ class PhoneDistanceApp:
 
         # State for FPS tracking
         self._frame_times = []
+
+        # State for image capture
+        self._last_capture_time = 0.0
+
+        # Create capture folder if enabled
+        if self.config.enable_capture:
+            os.makedirs(self.config.capture_folder, exist_ok=True)
+            print(f"Capture folder: {self.config.capture_folder}")
+
         print("PhoneDistanceApp initialized!")
 
     def process_frame(self, frame: np.ndarray, conf_threshold: float = 0.5) -> np.ndarray:
@@ -64,6 +75,12 @@ class PhoneDistanceApp:
             # Annotate frame
             annotated = self._annotate_frame(frame_bgr, detection)
 
+            # Save image when phone is detected (with interval check)
+            if self.config.enable_capture and detection is not None:
+                if current_time - self._last_capture_time >= self.config.capture_interval:
+                    self._save_image(annotated)
+                    self._last_capture_time = current_time
+
             # Update FPS
             self._frame_times.append(current_time)
             self._frame_times = [t for t in self._frame_times if current_time - t < 1.0]
@@ -83,7 +100,7 @@ class PhoneDistanceApp:
             # Convert back to RGB
             result = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
             return result
-            
+
         except Exception as e:
             print(f"Error processing frame: {e}")
             import traceback
@@ -139,6 +156,22 @@ class PhoneDistanceApp:
             )
 
         return annotated
+
+    def _save_image(self, frame: np.ndarray) -> None:
+        """
+        Save annotated frame to disk with bounding box.
+
+        Args:
+            frame: Annotated frame (BGR format) to save
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            filename = f"phone_{timestamp}.jpg"
+            filepath = os.path.join(self.config.capture_folder, filename)
+            cv2.imwrite(filepath, frame)
+            print(f"Saved: {filename}")
+        except Exception as e:
+            print(f"Error saving image: {e}")
 
     def launch(
         self,
