@@ -14,7 +14,8 @@ Usage:
 import argparse
 import sys
 
-from phone_distance_app import PhoneDistanceApp, AppConfig
+from phone_distance_app.gradio_app import PhoneDistanceApp
+from phone_distance_app.config import AppConfig
 
 
 def parse_args():
