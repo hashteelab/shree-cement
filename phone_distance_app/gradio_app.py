@@ -218,6 +218,9 @@ class PhoneDistanceApp:
             with gr.Row():
                 with gr.Column(scale=1):
                     # Webcam input with streaming
+                    # Note: Gradio's streaming=True captures frames at ~10 FPS (every 0.1 seconds)
+                    # Actual displayed FPS may be lower (2-3 FPS typical) due to network
+                    # latency and server processing time (YOLO inference)
                     webcam = gr.Image(
                         sources=["webcam"],
                         streaming=True,
