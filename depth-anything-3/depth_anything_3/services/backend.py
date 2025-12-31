@@ -21,17 +21,21 @@ Provides HTTP API for model inference with persistent model loading.
 import gc
 import os
 import posixpath
+import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+from base64 import b64decode
 import numpy as np
 import torch
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
+from PIL import Image
+import io
 
 from ..api import DepthAnything3
 
@@ -64,6 +68,23 @@ class InferenceResponse(BaseModel):
     task_id: Optional[str] = None
     export_dir: Optional[str] = None
     export_format: str = "mini_npz-glb"
+    processing_time: Optional[float] = None
+
+
+class Position3DRequest(BaseModel):
+    """Request model for 3D position calculation."""
+
+    red_dot_pixel: List[int]  # [u, v] pixel coordinates
+
+
+class Position3DResponse(BaseModel):
+    """Response model for 3D position calculation."""
+
+    success: bool
+    message: str
+    position: Optional[Dict[str, float]] = None  # {"x": float, "y": float, "z": float}
+    pixel: Optional[List[int]] = None  # [u, v] original pixel
+    depth: Optional[float] = None  # Depth at pixel in meters
     processing_time: Optional[float] = None
 
 
@@ -152,6 +173,7 @@ class ModelBackend:
 
 # Global backend instance
 _backend: Optional[ModelBackend] = None
+_backend_intrinsics: Optional[ModelBackend] = None  # DA3-SMALL for intrinsics (Apache 2.0)
 _app: Optional[FastAPI] = None
 _tasks: Dict[str, TaskStatus] = {}
 _executor = ThreadPoolExecutor(max_workers=1)  # Restrict to single-task execution
@@ -1396,6 +1418,144 @@ def create_app(model_dir: str, device: str = "cuda", gallery_dir: Optional[str] 
             raise HTTPException(status_code=500, detail=f"Failed to reload model: {str(e)}")
 
     # ============================================================================
+    # 3D Position Calculation Endpoint (CCTV Cement Bag Tracking)
+    # ============================================================================
+
+    @_app.post("/get_3d_position", response_model=Position3DResponse)
+    async def get_3d_position(
+        image: UploadFile = File(..., description="Image file"),
+        red_dot_u: int = None,
+        red_dot_v: int = None,
+    ):
+        """
+        Calculate 3D position of a red dot (bag centroid) relative to camera.
+
+        Args:
+            image: Uploaded image file
+            red_dot_u: U coordinate (column) of red dot pixel
+            red_dot_v: V coordinate (row) of red dot pixel
+
+        Returns:
+            3D position (x, y, z) in meters relative to camera
+            - x: right/left position (positive = right)
+            - y: down/up position (positive = down)
+            - z: depth/distance from camera (positive = straight ahead)
+        """
+        if _backend is None:
+            raise HTTPException(status_code=500, detail="Backend not initialized")
+
+        start_time = time.time()
+
+        # Validate pixel coordinates
+        if red_dot_u is None or red_dot_v is None:
+            raise HTTPException(
+                status_code=400,
+                detail="red_dot_u and red_dot_v parameters are required"
+            )
+
+        if red_dot_u < 0 or red_dot_v < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Pixel coordinates must be non-negative"
+            )
+
+        try:
+            # Read and save uploaded image to temporary file
+            image_bytes = await image.read()
+            img = Image.open(io.BytesIO(image_bytes))
+
+            # Validate image
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            # Check pixel coordinates are within image bounds
+            img_width, img_height = img.size
+            if red_dot_u >= img_width or red_dot_v >= img_height:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Pixel coordinates ({red_dot_u}, {red_dot_v}) "
+                          f"out of bounds for image size ({img_width}, {img_height})"
+                )
+
+            # Save to temporary file for model processing
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+                img.save(tmp_file, format="PNG")
+                tmp_path = tmp_file.name
+
+            try:
+                # Get model
+                model = _backend.get_model()
+
+                # Run inference
+                prediction = model.inference([tmp_path])
+
+                # Extract depth map and get its shape
+                depth_map = prediction.depth[0]  # (H, W) in meters
+                depth_h, depth_w = depth_map.shape
+
+                # Scale pixel coordinates from original image to depth map size
+                scale_u = depth_w / img_width
+                scale_v = depth_h / img_height
+                u_scaled = int(red_dot_u * scale_u)
+                v_scaled = int(red_dot_v * scale_v)
+
+                # Get intrinsics - use model prediction or run DA3-SMALL for intrinsics
+                if prediction.intrinsics is not None:
+                    K = prediction.intrinsics[0]  # (3, 3) camera matrix
+                    fx, fy = K[0, 0].item(), K[1, 1].item()
+                    cx, cy = K[0, 2].item(), K[1, 2].item()
+                else:
+                    # Use DA3-SMALL (Apache 2.0) to get intrinsics
+                    global _backend_intrinsics
+                    if _backend_intrinsics is None:
+                        _backend_intrinsics = ModelBackend("depth-anything/DA3-SMALL", _backend.device)
+                    model_intrinsics = _backend_intrinsics.get_model()
+                    pred_intrinsics = model_intrinsics.inference([tmp_path])
+                    K = pred_intrinsics.intrinsics[0]
+                    fx, fy = K[0, 0].item(), K[1, 1].item()
+                    cx, cy = K[0, 2].item(), K[1, 2].item()
+
+                # Get depth at the specified pixel (using scaled coordinates)
+                d = depth_map[v_scaled, u_scaled].item()
+
+                # Convert to 3D camera coordinates
+                # x = (u - cx) * d / fx  (right positive)
+                # y = (v - cy) * d / fy  (down positive)
+                # z = d                   (straight ahead positive)
+                x = (red_dot_u - cx) * d / fx
+                y = (red_dot_v - cy) * d / fy
+                z = d
+
+                processing_time = time.time() - start_time
+
+                return Position3DResponse(
+                    success=True,
+                    message="3D position calculated successfully",
+                    position={"x": round(x, 4), "y": round(y, 4), "z": round(z, 4)},
+                    pixel=[red_dot_u, red_dot_v],
+                    depth=round(d, 4),
+                    processing_time=round(processing_time, 3),
+                )
+
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback
+            traceback.print_exc()  # Print full traceback to console
+            processing_time = time.time() - start_time
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to calculate 3D position: {str(e)}"
+            )
+
+    # ============================================================================
     # Gallery routes
     # ============================================================================
 
@@ -1485,6 +1645,7 @@ def start_server(
         print(f"  • Browse gallery: http://{host}:{port}/gallery/")
 
     print("  • Submit inference tasks via API")
+    print(f"  • Calculate 3D position: POST http://{host}:{port}/get_3d_position")
     print("=" * 60)
 
     uvicorn.run(app, host=host, port=port, log_level="info")

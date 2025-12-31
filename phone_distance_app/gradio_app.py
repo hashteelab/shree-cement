@@ -78,7 +78,7 @@ class PhoneDistanceApp:
             # Save image when phone is detected (with interval check)
             if self.config.enable_capture and detection is not None:
                 if current_time - self._last_capture_time >= self.config.capture_interval:
-                    self._save_image(annotated)
+                    self._save_image(annotated, detection)
                     self._last_capture_time = current_time
 
             # Update FPS
@@ -170,16 +170,20 @@ class PhoneDistanceApp:
 
         return annotated
 
-    def _save_image(self, frame: np.ndarray) -> None:
+    def _save_image(self, frame: np.ndarray, detection) -> None:
         """
-        Save annotated frame to disk.
+        Save annotated frame to disk with red dot pixel coordinates in filename.
 
         Args:
             frame: Annotated frame (BGR format) to save
+            detection: Detection object containing centroid coordinates
         """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-            filename = f"phone_{timestamp}.jpg"
+            # Get centroid (red dot) pixel coordinates
+            cx, cy = detection.center
+            # Format: phone_20241231_123456_123_u320_v240.jpg
+            filename = f"phone_{timestamp}_u{cx}_v{cy}.jpg"
             filepath = os.path.join(self.config.capture_folder, filename)
             cv2.imwrite(filepath, frame)
             print(f"Saved: {filename}")
