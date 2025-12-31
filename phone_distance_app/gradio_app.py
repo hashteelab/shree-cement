@@ -238,7 +238,7 @@ class PhoneDistanceApp:
                     minimum=0.1,
                     maximum=1.0,
                     step=0.05,
-                    value=0.5,
+                    value=0.1,
                     label="Confidence Threshold",
                     info="Adjust detection sensitivity"
                 )
